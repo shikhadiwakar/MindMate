@@ -1,5 +1,5 @@
 # backend/main.py
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -12,16 +12,52 @@ import uvicorn
 from contextlib import asynccontextmanager
 import hashlib
 import os
+import uuid
+
+# Authentication imports
+from auth_service import (
+    UserLogin, UserSignup, Token, 
+    verify_password, get_password_hash, create_access_token,
+    verify_token
+)
 
 # Import our modules
 from models import *
 from database import DatabaseManager
-from ai_service import AIService
+
+# Simple AI service placeholder
+class AIService:
+    async def initialize(self):
+        print("AI service initialized (placeholder)")
+    
+    async def chat(self, user_id: str, message: str, context: dict):
+        return f"Thanks for your message: {message}. I'm here to help with your wellness journey!"
+    
+    async def generate_daily_insights(self, user_id: str, checkin_id: str):
+        return "Great job on completing your check-in today!"
+    
+    async def analyze_food_mood_correlation(self, user_id: str, days: int):
+        return []
+    
+    async def generate_weekly_summary(self, user_id: str):
+        return "You're doing great this week!"
+    
+    async def get_meal_suggestions(self, user_id: str, mood: str, energy_level: int):
+        return ["Try some fruits for natural energy", "Consider a balanced meal with protein"]
+    
+    async def get_mindful_practices(self, user_id: str, current_mood: str):
+        return ["5-minute breathing exercise", "Short gratitude practice"]
+    
+    async def generate_journal_reflection(self, content: str):
+        return "Your thoughts show self-awareness and growth."
 
 # Initialize services
 db_manager = DatabaseManager()
 ai_service = AIService()
 security = HTTPBearer(auto_error=False)
+
+# Configuration
+ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # 30 days
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,18 +78,207 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React dev servers
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Simple auth (in production, use proper JWT)
+# Authentication dependency
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if not credentials:
         return "anonymous"
-    return credentials.credentials  # In production, validate JWT
+    
+    user_id = verify_token(credentials.credentials)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
+    
+    user = await db_manager.get_user(user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    
+    return user_id
 
+# Authentication Routes
+@app.post("/api/auth/signup", response_model=Token)
+async def signup(user_data: UserSignup):
+    try:
+        # Check if user already exists
+        existing_user = await db_manager.get_user_by_email(user_data.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+        
+        # Hash the password
+        hashed_password = get_password_hash(user_data.password)
+        
+        # Create user data for database
+        user_create_data = UserCreate(
+            name=user_data.name,
+            email=user_data.email,
+            password=hashed_password,
+            age=user_data.age,
+            dietary_preferences=user_data.preferences
+        )
+        
+        # Create user in database
+        user_id = await db_manager.create_user(user_create_data)
+        user = await db_manager.get_user(user_id)
+        
+        # Create access token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": str(user_id)}, expires_delta=access_token_expires
+        )
+        
+        return Token(
+            access_token=access_token,
+            token_type="bearer",
+            user={
+                "id": user["id"],
+                "name": user["name"],
+                "email": user["email"]
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Registration failed: {str(e)}"
+        )
+
+# Replace the existing login endpoint in main.py with this:
+
+@app.post("/api/auth/login", response_model=Token)
+async def login(user_data: UserLogin):
+    try:
+        # Get user by email
+        user = await db_manager.get_user_by_email(user_data.email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
+        
+        # Verify password
+        if not verify_password(user_data.password, user["password"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
+        
+        # Create access token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": str(user["id"])}, expires_delta=access_token_expires
+        )
+        
+        # Calculate streak (simple implementation)
+        streak = 1  # You can implement proper streak calculation later
+        
+        return Token(
+            access_token=access_token,
+            token_type="bearer",
+            user={
+                "id": user["id"],
+                "name": user["name"],
+                "email": user["email"],
+                "has_completed_onboarding": user.get("has_completed_onboarding", False)
+            },
+            streak=streak  # Add streak to response
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login failed: {str(e)}"
+        )
+
+@app.post("/api/auth/refresh", response_model=Token)
+async def refresh_token(user_id: str = Depends(get_current_user)):
+    try:
+        user = await db_manager.get_user(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found"
+            )
+        
+        # Create new access token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": str(user_id)}, expires_delta=access_token_expires
+        )
+        
+        return Token(
+            access_token=access_token,
+            token_type="bearer",
+            user={
+                "id": user["id"],
+                "name": user["name"],
+                "email": user["email"]
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Token refresh failed: {str(e)}"
+        )
+
+@app.post("/api/auth/logout")
+async def logout(user_id: str = Depends(get_current_user)):
+    return {"message": "Successfully logged out"}
+
+
+# Add this endpoint after the logout endpoint in main.py (around line 175)
+
+@app.get("/api/auth/me")
+async def get_current_user_profile(user_id: str = Depends(get_current_user)):
+    """Get current authenticated user's profile"""
+    try:
+        user = await db_manager.get_user(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        return {
+            "id": user["id"],
+            "name": user["name"],
+            "email": user["email"],
+            "age": user.get("age"),
+            "dietary_preferences": user.get("dietary_preferences", []),
+            "mental_health_goals": user.get("mental_health_goals", []),
+            "dietary_restrictions": user.get("dietary_restrictions", []),
+            "timezone": user.get("timezone", "UTC"),
+            "has_completed_onboarding": user.get("has_completed_onboarding", False)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get user profile: {str(e)}"
+        )
+
+# Basic Routes
 @app.get("/")
 async def root():
     return {"message": "MindMate API is running", "version": "1.0.0"}
@@ -63,42 +288,35 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 # User Management
-@app.post("/api/users/register", response_model=UserResponse)
-async def register_user(user_data: UserCreate):
-    user_id = await db_manager.create_user(user_data)
-    user = await db_manager.get_user(user_id)
-    return user
-
-@app.get("/api/users/profile", response_model=UserResponse)
+@app.get("/api/users/profile")
 async def get_profile(user_id: str = Depends(get_current_user)):
     user = await db_manager.get_user(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
-@app.put("/api/users/profile", response_model=UserResponse)
+@app.put("/api/users/profile")
 async def update_profile(user_data: UserUpdate, user_id: str = Depends(get_current_user)):
     await db_manager.update_user(user_id, user_data)
     user = await db_manager.get_user(user_id)
     return user
 
 # Daily Check-ins
-@app.post("/api/checkins", response_model=CheckinResponse)
+@app.post("/api/checkins")
 async def create_checkin(checkin: CheckinCreate, user_id: str = Depends(get_current_user)):
     checkin_id = await db_manager.create_checkin(user_id, checkin)
     
-    # Generate AI insights if this is an evening checkin
-    if checkin.checkin_type == "evening":
-        try:
-            insights = await ai_service.generate_daily_insights(user_id, checkin_id)
-            await db_manager.save_insights(user_id, checkin_id, insights)
-        except Exception as e:
-            print(f"Failed to generate insights: {e}")
+    # Generate AI insights
+    try:
+        insights = await ai_service.generate_daily_insights(user_id, checkin_id)
+        await db_manager.save_insights(user_id, checkin_id, insights)
+    except Exception as e:
+        print(f"Failed to generate insights: {e}")
     
     result = await db_manager.get_checkin(checkin_id)
     return result
 
-@app.get("/api/checkins", response_model=List[CheckinResponse])
+@app.get("/api/checkins")
 async def get_checkins(
     user_id: str = Depends(get_current_user),
     limit: int = 10,
@@ -107,7 +325,7 @@ async def get_checkins(
     checkins = await db_manager.get_user_checkins(user_id, limit, offset)
     return checkins
 
-@app.get("/api/checkins/today", response_model=Optional[CheckinResponse])
+@app.get("/api/checkins/today")
 async def get_today_checkin(
     checkin_type: str,
     user_id: str = Depends(get_current_user)
@@ -116,13 +334,29 @@ async def get_today_checkin(
     return checkin
 
 # Food Logging
-@app.post("/api/food-logs", response_model=FoodLogResponse)
-async def create_food_log(food_log: FoodLogCreate, user_id: str = Depends(get_current_user)):
+from fastapi import Request
+
+# Food Logging
+from fastapi import Request
+
+@app.post("/api/food-logs")
+async def create_food_log(
+    request: Request,
+    user_id: str = Depends(get_current_user)
+):
+    body = await request.json()
+    print("🔍 Raw incoming JSON:", body)
+
+    # then try to validate manually
+    food_log = FoodLogCreate(**body)
+
     log_id = await db_manager.create_food_log(user_id, food_log)
     result = await db_manager.get_food_log(log_id)
     return result
 
-@app.get("/api/food-logs", response_model=List[FoodLogResponse])
+
+
+@app.get("/api/food-logs")
 async def get_food_logs(
     user_id: str = Depends(get_current_user),
     limit: int = 20,
@@ -131,37 +365,58 @@ async def get_food_logs(
     logs = await db_manager.get_user_food_logs(user_id, limit, offset)
     return logs
 
-# AI Chat
-@app.post("/api/chat", response_model=ChatResponse)
+@app.post("/api/chat")
 async def chat_with_ai(chat_request: ChatRequest, user_id: str = Depends(get_current_user)):
     try:
+        # Validate input
+        if not chat_request.message or not chat_request.message.strip():
+            raise HTTPException(status_code=400, detail="Message cannot be empty")
+        
+        message = chat_request.message.strip()
+        
         # Get user context for personalized responses
         user_context = await db_manager.get_user_context(user_id)
         
         # Generate AI response
         ai_response = await ai_service.chat(
             user_id=user_id,
-            message=chat_request.message,
+            message=message,
             context=user_context
         )
         
-        # Save conversation
-        await db_manager.save_conversation(user_id, chat_request.message, ai_response)
+        # Ensure response is not empty
+        if not ai_response or not ai_response.strip():
+            ai_response = "I'm here to listen. Could you tell me more about what's on your mind?"
         
-        return ChatResponse(
-            message=ai_response,
-            timestamp=datetime.utcnow()
-        )
+        # Save conversation
+        await db_manager.save_conversation(user_id, message, ai_response.strip())
+        
+        return {
+            "message": ai_response.strip(),
+            "timestamp": datetime.utcnow()
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
+        print(f"Chat error: {e}")
+        raise HTTPException(status_code=500, detail="I'm having trouble responding right now. Please try again.")
 
-@app.get("/api/chat/history", response_model=List[ConversationResponse])
+@app.get("/api/chat/history")
 async def get_chat_history(
     user_id: str = Depends(get_current_user),
     limit: int = 50
 ):
-    history = await db_manager.get_conversation_history(user_id, limit)
-    return history
+    try:
+        history = await db_manager.get_conversation_history(user_id, limit)
+        # Filter out any conversations with empty messages
+        valid_history = [
+            conv for conv in history 
+            if conv.get('user_message', '').strip() and conv.get('ai_response', '').strip()
+        ]
+        return valid_history
+    except Exception as e:
+        print(f"Error getting chat history: {e}")
+        return []
 
 # Insights & Analytics
 @app.get("/api/insights/mood-trends")
@@ -204,7 +459,7 @@ async def get_mindful_practices(
     return {"practices": practices}
 
 # Journal
-@app.post("/api/journal", response_model=JournalResponse)
+@app.post("/api/journal")
 async def create_journal_entry(entry: JournalCreate, user_id: str = Depends(get_current_user)):
     entry_id = await db_manager.create_journal_entry(user_id, entry)
     
@@ -218,7 +473,7 @@ async def create_journal_entry(entry: JournalCreate, user_id: str = Depends(get_
     result = await db_manager.get_journal_entry(entry_id)
     return result
 
-@app.get("/api/journal", response_model=List[JournalResponse])
+@app.get("/api/journal")
 async def get_journal_entries(
     user_id: str = Depends(get_current_user),
     limit: int = 20,

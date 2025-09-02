@@ -17,9 +17,6 @@ async def generate_stream(text: str):
         yield word + " "
         await asyncio.sleep(0.05)
 
-
-
-
 # Import models with error handling
 try:
     from models import UserContext, MealSuggestion, MindfulPractice
@@ -53,14 +50,13 @@ except ImportError as e:
 class AIService:
     def __init__(self, ollama_url: str = "http://localhost:11434"):
         self.ollama_url = ollama_url
-        self.model_name = "llama3.2:3b"  # Lightweight but capable model
+        self.model_name = "llama3.2:3b"
         self.initialized = False
         
     async def initialize(self):
-        """Initialize and ensure model is available"""
+        """Initialize and check Ollama availability"""
         try:
-            # Check if Ollama is running
-            timeout = aiohttp.ClientTimeout(total=10)
+            timeout = aiohttp.ClientTimeout(total=5)  # Shorter timeout
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(f"{self.ollama_url}/api/tags") as response:
                     if response.status == 200:
@@ -68,21 +64,77 @@ class AIService:
                         model_names = [model['name'] for model in models.get('models', [])]
                         
                         if self.model_name not in model_names:
-                            logger.info(f"Model {self.model_name} not found. Pulling model...")
-                            await self._pull_model()
+                            logger.info(f"Model {self.model_name} not found. Available models: {model_names}")
+                            # Try to use any available model
+                            if model_names:
+                                self.model_name = model_names[0]
+                                logger.info(f"Using available model: {self.model_name}")
+                            else:
+                                logger.warning("No models available, will use fallback responses")
+                                self.initialized = False
+                                return False
                         
                         self.initialized = True
                         logger.info(f"AI Service initialized with {self.model_name}")
+                        return True
                     else:
-                        logger.error("Ollama server not accessible. Make sure Ollama is running.")
+                        logger.error(f"Ollama server returned status {response.status}")
+                        self.initialized = False
                         return False
         except Exception as e:
             logger.error(f"Failed to initialize AI service: {e}")
-            # Fall back to template responses if Ollama isn't available
+            logger.info("Will use fallback responses")
             self.initialized = False
             return False
+
+    async def chat(self, user_id: str, message: str, context: UserContext = None) -> str:
+        """Generate conversational AI response"""
         
-        return True
+        # Always ensure we return a non-empty response
+        if not message or not message.strip():
+            return "I'm here to listen. What would you like to talk about?"
+        
+        if not self.initialized:
+            return self._get_fallback_response(message)
+        
+        try:
+            # Build system prompt
+            system_prompt = """You are a compassionate AI wellness companion. You provide empathetic, supportive responses to help users with mental health and mindful eating. Keep responses warm, concise (2-3 sentences), and encouraging. Never provide medical advice."""
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message.strip()}
+            ]
+            
+            data = {
+                "model": self.model_name,
+                "messages": messages,
+                "stream": False,
+                "options": {
+                    "temperature": 0.7,
+                    "num_predict": 200  # Shorter responses
+                }
+            }
+            
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(f"{self.ollama_url}/api/chat", json=data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        ai_response = result.get('message', {}).get('content', '').strip()
+                        
+                        # Fallback if empty response
+                        if not ai_response:
+                            return self._get_fallback_response(message)
+                        
+                        return ai_response
+                    else:
+                        logger.error(f"Ollama API error: {response.status}")
+                        return self._get_fallback_response(message)
+                        
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
+            return self._get_fallback_response(message)
     
     async def _pull_model(self):
         """Pull the model if not available"""
@@ -136,17 +188,30 @@ class AIService:
             return self._get_fallback_response(prompt)
     
     def _get_fallback_response(self, prompt: str) -> str:
-        """Fallback response when Ollama is not available"""
+        """Enhanced fallback responses"""
         prompt_lower = prompt.lower()
         
-        if any(word in prompt_lower for word in ['sad', 'depressed', 'down', 'low']):
-            return "I hear that you're feeling down right now. That's completely valid, and I'm here to listen. What's been weighing on your mind today?"
-        elif any(word in prompt_lower for word in ['anxious', 'worried', 'stressed', 'panic']):
-            return "I can sense you're feeling anxious. Let's take this one step at a time. Can you tell me what's making you feel this way right now?"
+        # Emotion-based responses
+        if any(word in prompt_lower for word in ['sad', 'depressed', 'down', 'low', 'upset']):
+            return "I hear that you're feeling down right now. Your feelings are completely valid. What's been weighing on your mind lately?"
+        
+        elif any(word in prompt_lower for word in ['anxious', 'worried', 'stressed', 'panic', 'overwhelmed']):
+            return "I can sense you're feeling anxious or stressed. Let's take this one step at a time. What's making you feel this way right now?"
+        
+        elif any(word in prompt_lower for word in ['angry', 'frustrated', 'mad', 'annoyed']):
+            return "It sounds like you're feeling frustrated. That's understandable - we all have moments like this. What's been bothering you?"
+        
+        elif any(word in prompt_lower for word in ['happy', 'good', 'great', 'amazing', 'wonderful']):
+            return "I'm so glad to hear you're feeling good! What's been going well for you today?"
+        
+        elif any(word in prompt_lower for word in ['food', 'eat', 'meal', 'hungry', 'craving']):
+            return "I'd love to help you explore your relationship with food. What's on your mind about eating today?"
+        
         elif any(word in prompt_lower for word in ['help', 'advice', 'what should i']):
-            return "I'm here to support you. What kind of help are you looking for today? I can help with processing emotions, mindful eating strategies, or stress management techniques."
+            return "I'm here to support you through whatever you're facing. Tell me more about what kind of help you're looking for today."
+        
         else:
-            return "I'm listening. Tell me more about what's on your mind."
+            return "I'm here to listen and support you. What's on your mind today?"
 
     async def chat(self, user_id: str, message: str, context: UserContext = None) -> str:
         """Generate conversational AI response"""

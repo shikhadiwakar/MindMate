@@ -1,12 +1,29 @@
-# backend/requirements.txt
+# FastAPI and web server
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-pydantic==2.5.0
+
+# Database
 aiosqlite==0.19.0
-python-multipart==0.0.6
+
+# Authentication
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+passlib==1.7.4
+bcrypt==4.0.1
+python-multipart==0.0.6
+
+# Validation and serialization
+pydantic[email]==2.4.2
+
+
+# Environment variables
 python-dotenv==1.0.0
+
+# Date/time handling
+python-dateutil==2.8.2
+
+# HTTP client (if needed for AI services)
 httpx==0.25.2
+
+# Testing (optional)
 pytest==7.4.3
 pytest-asyncio==0.21.1

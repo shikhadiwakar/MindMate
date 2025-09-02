@@ -13,105 +13,111 @@ class DatabaseManager:
         
     async def init_db(self):
         """Initialize database with all tables"""
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    email TEXT UNIQUE,
-                    age INTEGER,
-                    dietary_preferences TEXT DEFAULT '[]',
-                    dietary_restrictions TEXT DEFAULT '[]',
-                    mental_health_goals TEXT DEFAULT '[]',
-                    timezone TEXT DEFAULT 'UTC',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-            """)
-            
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS checkins (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    checkin_type TEXT NOT NULL,
-                    mood TEXT NOT NULL,
-                    energy_level INTEGER NOT NULL,
-                    stress_level INTEGER NOT NULL,
-                    hunger_level INTEGER NOT NULL,
-                    sleep_quality INTEGER,
-                    notes TEXT,
-                    gratitude TEXT,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
-                )
-            """)
-            
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS food_logs (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    meal_type TEXT NOT NULL,
-                    food_items TEXT NOT NULL,
-                    portion_size TEXT,
-                    hunger_before INTEGER NOT NULL,
-                    hunger_after INTEGER NOT NULL,
-                    emotions_before TEXT DEFAULT '[]',
-                    emotions_after TEXT DEFAULT '[]',
-                    mindful_eating_score INTEGER,
-                    notes TEXT,
-                    photo_url TEXT,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
-                )
-            """)
-            
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS conversations (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    user_message TEXT NOT NULL,
-                    ai_response TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
-                )
-            """)
-            
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS journal_entries (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    title TEXT,
-                    content TEXT NOT NULL,
-                    mood TEXT,
-                    tags TEXT DEFAULT '[]',
-                    is_private BOOLEAN DEFAULT 1,
-                    ai_reflection TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
-                )
-            """)
-            
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS insights (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    checkin_id TEXT,
-                    insight_type TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (id),
-                    FOREIGN KEY (checkin_id) REFERENCES checkins (id)
-                )
-            """)
-            
-            # Create indexes for better performance
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_checkins_user_date ON checkins(user_id, created_at)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_food_logs_user_date ON food_logs(user_id, created_at)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_conversations_user_date ON conversations(user_id, created_at)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_journal_user_date ON journal_entries(user_id, created_at)")
-            
-            await db.commit()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # Users table with authentication
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        email TEXT UNIQUE,
+                        password TEXT,
+                        age INTEGER,
+                        preferences TEXT DEFAULT '[]',
+                        goals TEXT DEFAULT '[]',
+                        dietary_restrictions TEXT DEFAULT '[]',
+                        timezone TEXT DEFAULT 'UTC',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        has_completed_onboarding BOOLEAN DEFAULT 0
+                    )
+                """)
+                
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS checkins (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        checkin_type TEXT NOT NULL,
+                        mood INTEGER NOT NULL,
+                        energy_level INTEGER NOT NULL,
+                        stress_level INTEGER NOT NULL,
+                        sleep_hours REAL,
+                        exercise_minutes INTEGER,
+                        notes TEXT,
+                        gratitude TEXT,
+                        created_at TEXT NOT NULL,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                """)
+                
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS food_logs (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        food_name TEXT NOT NULL,
+                        meal_type TEXT NOT NULL,
+                        portion_size TEXT,
+                        calories INTEGER,
+                        mood_before INTEGER,
+                        mood_after INTEGER,
+                        notes TEXT,
+                        created_at TEXT NOT NULL,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                """)
+                
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS conversations (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        user_message TEXT NOT NULL,
+                        ai_response TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                """)
+                
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS journal_entries (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        title TEXT,
+                        content TEXT NOT NULL,
+                        mood INTEGER,
+                        tags TEXT DEFAULT '[]',
+                        is_private BOOLEAN DEFAULT 1,
+                        ai_reflection TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        FOREIGN KEY (user_id) REFERENCES users (id)
+                    )
+                """)
+                
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS insights (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        checkin_id TEXT,
+                        insight_type TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        FOREIGN KEY (checkin_id) REFERENCES checkins (id)
+                    )
+                """)
+                
+                # Create indexes for better performance
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_checkins_user_date ON checkins(user_id, created_at)")
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_food_logs_user_date ON food_logs(user_id, created_at)")
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_conversations_user_date ON conversations(user_id, created_at)")
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_journal_user_date ON journal_entries(user_id, created_at)")
+                
+                await db.commit()
+                print("Database initialized successfully")
+        except Exception as e:
+            print(f"Database initialization error: {e}")
+            raise
 
     async def close(self):
         """Close database connections"""
@@ -124,41 +130,57 @@ class DatabaseManager:
         
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
-                INSERT INTO users (id, name, email, age, dietary_preferences, 
-                                 dietary_restrictions, mental_health_goals, timezone, 
-                                 created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (id, name, email, password, age, preferences, 
+                                 goals, dietary_restrictions, timezone, 
+                                 created_at, updated_at, has_completed_onboarding)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                user_id, user_data.name, user_data.email, user_data.age,
-                json.dumps(user_data.dietary_preferences or []),
-                json.dumps(user_data.dietary_restrictions or []),
-                json.dumps(user_data.mental_health_goals or []),
-                user_data.timezone, now, now
+                user_id, user_data.name, user_data.email, user_data.password,
+                user_data.age, json.dumps(user_data.dietary_preferences or []),
+                json.dumps(user_data.mental_health_goals or []), 
+                json.dumps(user_data.dietary_restrictions or []), 
+                user_data.timezone or 'UTC', now, now, False
             ))
             await db.commit()
         
         return user_id
 
-    async def get_user(self, user_id: str) -> Optional[UserResponse]:
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM users WHERE id = ?", (user_id,)) as cursor:
-                row = await cursor.fetchone()
-                if not row:
+    async def get_user(self, user_id: str):
+        """Get user by ID - Returns dict format"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute("SELECT * FROM users WHERE id = ?", (user_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        user_dict = dict(row)
+                        # Parse JSON fields
+                        user_dict['dietary_preferences'] = json.loads(user_dict.get('preferences', '[]'))
+                        user_dict['mental_health_goals'] = json.loads(user_dict.get('goals', '[]'))
+                        user_dict['dietary_restrictions'] = json.loads(user_dict.get('dietary_restrictions', '[]'))
+                        return user_dict
                     return None
-                
-                return UserResponse(
-                    id=row['id'],
-                    name=row['name'],
-                    email=row['email'],
-                    age=row['age'],
-                    dietary_preferences=json.loads(row['dietary_preferences']),
-                    dietary_restrictions=json.loads(row['dietary_restrictions']),
-                    mental_health_goals=json.loads(row['mental_health_goals']),
-                    timezone=row['timezone'],
-                    created_at=datetime.fromisoformat(row['created_at']),
-                    updated_at=datetime.fromisoformat(row['updated_at'])
-                )
+        except Exception as e:
+            print(f"Database error getting user: {e}")
+            return None
+
+    async def get_user_by_email(self, email: str):
+        """Get user by email address"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute("SELECT * FROM users WHERE email = ?", (email,)) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        user_dict = dict(row)
+                        user_dict['dietary_preferences'] = json.loads(user_dict.get('preferences', '[]'))
+                        user_dict['mental_health_goals'] = json.loads(user_dict.get('goals', '[]'))
+                        user_dict['dietary_restrictions'] = json.loads(user_dict.get('dietary_restrictions', '[]'))
+                        return user_dict
+                    return None
+        except Exception as e:
+            print(f"Error getting user by email: {e}")
+            return None
 
     async def update_user(self, user_id: str, user_data: UserUpdate):
         updates = []
@@ -171,17 +193,14 @@ class DatabaseManager:
             updates.append("age = ?")
             values.append(user_data.age)
         if user_data.dietary_preferences is not None:
-            updates.append("dietary_preferences = ?")
+            updates.append("preferences = ?")
             values.append(json.dumps(user_data.dietary_preferences))
         if user_data.dietary_restrictions is not None:
             updates.append("dietary_restrictions = ?")
             values.append(json.dumps(user_data.dietary_restrictions))
         if user_data.mental_health_goals is not None:
-            updates.append("mental_health_goals = ?")
+            updates.append("goals = ?")
             values.append(json.dumps(user_data.mental_health_goals))
-        if user_data.timezone is not None:
-            updates.append("timezone = ?")
-            values.append(user_data.timezone)
         
         if not updates:
             return
@@ -197,95 +216,99 @@ class DatabaseManager:
             await db.commit()
 
     # Check-ins
-    async def create_checkin(self, user_id: str, checkin: CheckinCreate) -> str:
-        checkin_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
-        
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("""
-                INSERT INTO checkins (id, user_id, checkin_type, mood, energy_level,
-                                    stress_level, hunger_level, sleep_quality, notes,
-                                    gratitude, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                checkin_id, user_id, checkin.checkin_type.value, checkin.mood.value,
-                checkin.energy_level.value, checkin.stress_level, checkin.hunger_level,
-                checkin.sleep_quality, checkin.notes, checkin.gratitude, now
-            ))
-            await db.commit()
-        
-        return checkin_id
 
-    async def get_checkin(self, checkin_id: str) -> Optional[CheckinResponse]:
+    async def get_checkin(self, checkin_id: str):
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT * FROM checkins WHERE id = ?", (checkin_id,)) as cursor:
                 row = await cursor.fetchone()
                 if not row:
                     return None
-                
-                return CheckinResponse(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    checkin_type=CheckinType(row['checkin_type']),
-                    mood=MoodType(row['mood']),
-                    energy_level=row['energy_level'],
-                    stress_level=row['stress_level'],
-                    hunger_level=row['hunger_level'],
-                    sleep_quality=row['sleep_quality'],
-                    notes=row['notes'],
-                    gratitude=row['gratitude'],
-                    created_at=datetime.fromisoformat(row['created_at'])
-                )
+                return dict(row)
 
-    # Food Logs
-    async def create_food_log(self, user_id: str, food_log: FoodLogCreate) -> str:
+    async def get_user_checkins(self, user_id: str, limit: int = 10, offset: int = 0):
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT * FROM checkins WHERE user_id = ? 
+                ORDER BY created_at DESC LIMIT ? OFFSET ?
+            """, (user_id, limit, offset)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    async def get_today_checkin(self, user_id: str, checkin_type: str):
+        today = datetime.utcnow().date().isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT * FROM checkins 
+                WHERE user_id = ? AND checkin_type = ? AND date(created_at) = ?
+                ORDER BY created_at DESC LIMIT 1
+            """, (user_id, checkin_type, today)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return dict(row)
+                return None
+
+    # Fix create_checkin method in database.py (around line 232)
+    async def create_checkin(self, user_id: str, checkin) -> str:
+        checkin_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat()
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO checkins (id, user_id, checkin_type, mood, energy_level,
+                                    stress_level, sleep_hours, exercise_minutes, 
+                                    notes, gratitude, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                checkin_id, user_id, checkin.checkin_type, checkin.mood,
+                checkin.energy_level, checkin.stress_level, 
+                getattr(checkin, 'sleep_hours', None), 
+                getattr(checkin, 'exercise_minutes', None),
+                getattr(checkin, 'notes', None), 
+                getattr(checkin, 'gratitude', None),
+                now
+            ))
+            await db.commit()
+        
+        return checkin_id
+
+    # Fix create_food_log method in database.py (around line 283)
+    async def create_food_log(self, user_id: str, food_log) -> str:
         log_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat()
         
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
-                INSERT INTO food_logs (id, user_id, meal_type, food_items, portion_size,
-                                     hunger_before, hunger_after, emotions_before, 
-                                     emotions_after, mindful_eating_score, notes, 
-                                     photo_url, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO food_logs (id, user_id, food_name, meal_type, portion_size,
+                                    calories, mood_before, mood_after, notes, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                log_id, user_id, food_log.meal_type, json.dumps(food_log.food_items),
-                food_log.portion_size, food_log.hunger_before, food_log.hunger_after,
-                json.dumps(food_log.emotions_before or []),
-                json.dumps(food_log.emotions_after or []),
-                food_log.mindful_eating_score, food_log.notes, food_log.photo_url, now
+                log_id, user_id, 
+                getattr(food_log, 'food_name', None),
+                getattr(food_log, 'meal_type', None),
+                getattr(food_log, 'portion_size', None), 
+                getattr(food_log, 'calories', None), 
+                getattr(food_log, 'mood_before', None),
+                getattr(food_log, 'mood_after', None), 
+                getattr(food_log, 'notes', None), 
+                now
             ))
             await db.commit()
         
         return log_id
 
-    async def get_food_log(self, log_id: str) -> Optional[FoodLogResponse]:
+    async def get_food_log(self, log_id: str):
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT * FROM food_logs WHERE id = ?", (log_id,)) as cursor:
                 row = await cursor.fetchone()
                 if not row:
                     return None
-                
-                return FoodLogResponse(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    meal_type=row['meal_type'],
-                    food_items=json.loads(row['food_items']),
-                    portion_size=row['portion_size'],
-                    hunger_before=row['hunger_before'],
-                    hunger_after=row['hunger_after'],
-                    emotions_before=json.loads(row['emotions_before']),
-                    emotions_after=json.loads(row['emotions_after']),
-                    mindful_eating_score=row['mindful_eating_score'],
-                    notes=row['notes'],
-                    photo_url=row['photo_url'],
-                    created_at=datetime.fromisoformat(row['created_at'])
-                )
+                return dict(row)
 
-    async def get_user_food_logs(self, user_id: str, limit: int = 20, offset: int = 0) -> List[FoodLogResponse]:
+    async def get_user_food_logs(self, user_id: str, limit: int = 20, offset: int = 0):
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("""
@@ -293,25 +316,16 @@ class DatabaseManager:
                 ORDER BY created_at DESC LIMIT ? OFFSET ?
             """, (user_id, limit, offset)) as cursor:
                 rows = await cursor.fetchall()
-                
-                return [FoodLogResponse(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    meal_type=row['meal_type'],
-                    food_items=json.loads(row['food_items']),
-                    portion_size=row['portion_size'],
-                    hunger_before=row['hunger_before'],
-                    hunger_after=row['hunger_after'],
-                    emotions_before=json.loads(row['emotions_before']),
-                    emotions_after=json.loads(row['emotions_after']),
-                    mindful_eating_score=row['mindful_eating_score'],
-                    notes=row['notes'],
-                    photo_url=row['photo_url'],
-                    created_at=datetime.fromisoformat(row['created_at'])
-                ) for row in rows]
+                return [dict(row) for row in rows]
 
     # Conversations
     async def save_conversation(self, user_id: str, user_message: str, ai_response: str) -> str:
+        # Validate inputs before saving
+        if not user_message or not user_message.strip():
+            raise ValueError("User message cannot be empty")
+        if not ai_response or not ai_response.strip():
+            raise ValueError("AI response cannot be empty")
+        
         conversation_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat()
         
@@ -319,30 +333,29 @@ class DatabaseManager:
             await db.execute("""
                 INSERT INTO conversations (id, user_id, user_message, ai_response, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (conversation_id, user_id, user_message, ai_response, now))
+            """, (conversation_id, user_id, user_message.strip(), ai_response.strip(), now))
             await db.commit()
         
         return conversation_id
 
-    async def get_conversation_history(self, user_id: str, limit: int = 50) -> List[ConversationResponse]:
+    async def get_conversation_history(self, user_id: str, limit: int = 50):
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("""
-                SELECT * FROM conversations WHERE user_id = ? 
-                ORDER BY created_at DESC LIMIT ?
+                SELECT * FROM conversations 
+                WHERE user_id = ? 
+                AND user_message IS NOT NULL 
+                AND ai_response IS NOT NULL
+                AND trim(user_message) != '' 
+                AND trim(ai_response) != ''
+                ORDER BY created_at DESC 
+                LIMIT ?
             """, (user_id, limit)) as cursor:
                 rows = await cursor.fetchall()
-                
-                return [ConversationResponse(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    user_message=row['user_message'],
-                    ai_response=row['ai_response'],
-                    created_at=datetime.fromisoformat(row['created_at'])
-                ) for row in rows]
+                return [dict(row) for row in rows]
 
     # Journal
-    async def create_journal_entry(self, user_id: str, entry: JournalCreate) -> str:
+    async def create_journal_entry(self, user_id: str, entry) -> str:
         entry_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat()
         
@@ -353,8 +366,8 @@ class DatabaseManager:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 entry_id, user_id, entry.title, entry.content,
-                entry.mood.value if entry.mood else None,
-                json.dumps(entry.tags or []), entry.is_private, now, now
+                entry.mood, json.dumps(entry.tags or []), 
+                entry.is_private, now, now
             ))
             await db.commit()
         
@@ -368,28 +381,18 @@ class DatabaseManager:
             """, (reflection, datetime.utcnow().isoformat(), entry_id))
             await db.commit()
 
-    async def get_journal_entry(self, entry_id: str) -> Optional[JournalResponse]:
+    async def get_journal_entry(self, entry_id: str):
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT * FROM journal_entries WHERE id = ?", (entry_id,)) as cursor:
                 row = await cursor.fetchone()
                 if not row:
                     return None
-                
-                return JournalResponse(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    title=row['title'],
-                    content=row['content'],
-                    mood=MoodType(row['mood']) if row['mood'] else None,
-                    tags=json.loads(row['tags']),
-                    is_private=bool(row['is_private']),
-                    ai_reflection=row['ai_reflection'],
-                    created_at=datetime.fromisoformat(row['created_at']),
-                    updated_at=datetime.fromisoformat(row['updated_at'])
-                )
+                result = dict(row)
+                result['tags'] = json.loads(result.get('tags', '[]'))
+                return result
 
-    async def get_user_journal_entries(self, user_id: str, limit: int = 20, offset: int = 0) -> List[JournalResponse]:
+    async def get_user_journal_entries(self, user_id: str, limit: int = 20, offset: int = 0):
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("""
@@ -397,19 +400,12 @@ class DatabaseManager:
                 ORDER BY created_at DESC LIMIT ? OFFSET ?
             """, (user_id, limit, offset)) as cursor:
                 rows = await cursor.fetchall()
-                
-                return [JournalResponse(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    title=row['title'],
-                    content=row['content'],
-                    mood=MoodType(row['mood']) if row['mood'] else None,
-                    tags=json.loads(row['tags']),
-                    is_private=bool(row['is_private']),
-                    ai_reflection=row['ai_reflection'],
-                    created_at=datetime.fromisoformat(row['created_at']),
-                    updated_at=datetime.fromisoformat(row['updated_at'])
-                ) for row in rows]
+                result = []
+                for row in rows:
+                    row_dict = dict(row)
+                    row_dict['tags'] = json.loads(row_dict.get('tags', '[]'))
+                    result.append(row_dict)
+                return result
 
     # Insights
     async def save_insights(self, user_id: str, checkin_id: str, insights: str):
@@ -424,7 +420,7 @@ class DatabaseManager:
             await db.commit()
 
     # Analytics
-    async def get_mood_trends(self, user_id: str, days: int = 30) -> List[Dict[str, Any]]:
+    async def get_mood_trends(self, user_id: str, days: int = 30):
         start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
         
         async with aiosqlite.connect(self.db_path) as db:
@@ -436,54 +432,14 @@ class DatabaseManager:
                 ORDER BY created_at
             """, (user_id, start_date)) as cursor:
                 rows = await cursor.fetchall()
-                
                 return [dict(row) for row in rows]
 
-    async def get_user_context(self, user_id: str) -> UserContext:
-        # Get recent mood and patterns
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            
-            # Recent checkin
-            async with db.execute("""
-                SELECT mood, energy_level, stress_level FROM checkins 
-                WHERE user_id = ? ORDER BY created_at DESC LIMIT 1
-            """, (user_id,)) as cursor:
-                recent_checkin = await cursor.fetchone()
-            
-            # Common emotions from food logs
-            async with db.execute("""
-                SELECT emotions_before, emotions_after FROM food_logs 
-                WHERE user_id = ? ORDER BY created_at DESC LIMIT 20
-            """, (user_id,)) as cursor:
-                emotion_rows = await cursor.fetchall()
-            
-            # User goals
-            async with db.execute("""
-                SELECT mental_health_goals FROM users WHERE id = ?
-            """, (user_id,)) as cursor:
-                user_row = await cursor.fetchone()
-        
-        # Process emotions
-        all_emotions = []
-        for row in emotion_rows:
-            if row['emotions_before']:
-                all_emotions.extend(json.loads(row['emotions_before']))
-            if row['emotions_after']:
-                all_emotions.extend(json.loads(row['emotions_after']))
-        
-        # Count emotion frequency
-        emotion_counts = {}
-        for emotion in all_emotions:
-            emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
-        
-        common_emotions = sorted(emotion_counts.keys(), key=emotion_counts.get, reverse=True)[:5]
-        
-        return UserContext(
-            recent_mood=MoodType(recent_checkin['mood']) if recent_checkin else None,
-            avg_energy=recent_checkin['energy_level'] if recent_checkin else None,
-            avg_stress=recent_checkin['stress_level'] if recent_checkin else None,
-            common_emotions=common_emotions,
-            goals=json.loads(user_row['mental_health_goals']) if user_row else []
-        )
-
+    async def get_user_context(self, user_id: str):
+        # Simple implementation - return basic context
+        return {
+            "recent_mood": None,
+            "avg_energy": None,
+            "avg_stress": None,
+            "common_emotions": [],
+            "goals": []
+        }

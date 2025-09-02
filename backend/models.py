@@ -29,6 +29,7 @@ class UserCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     email: Optional[str] = Field(None, pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
     age: Optional[int] = Field(None, ge=13, le=120)
+    password: str
     dietary_preferences: Optional[List[str]] = []
     dietary_restrictions: Optional[List[str]] = []
     mental_health_goals: Optional[List[str]] = []
@@ -232,3 +233,39 @@ class DatabaseUser(BaseModel):
     timezone: str
     created_at: str
     updated_at: str
+
+# Update CheckinCreate model in models.py - Add missing fields
+class CheckinCreate(BaseModel):
+    checkin_type: CheckinType
+    mood: MoodType
+    energy_level: EnergyLevel = Field(..., ge=1, le=5)
+    stress_level: int = Field(..., ge=1, le=10)
+    hunger_level: int = Field(..., ge=1, le=10)
+    sleep_quality: Optional[int] = Field(None, ge=1, le=10)
+    # Add these missing fields that database expects:
+    sleep_hours: Optional[float] = Field(None, ge=0, le=24)
+    exercise_minutes: Optional[int] = Field(None, ge=0)
+    notes: Optional[str] = Field(None, max_length=1000)
+    gratitude: Optional[str] = Field(None, max_length=500)
+
+class FoodLogCreate(BaseModel):
+    meal_type: str = Field(..., pattern=r'^(breakfast|lunch|dinner|snack)$')
+    food_name: str = Field(..., min_length=1)   # ✅ required (DB requires NOT NULL)
+    
+    portion_size: Optional[str] = None
+    calories: Optional[int] = Field(None, ge=0)
+    
+    # Hunger levels (need DB columns!)
+    hunger_before: Optional[int] = Field(None, ge=1, le=10)
+    hunger_after: Optional[int] = Field(None, ge=1, le=10)
+    
+    # Moods (already in DB)
+    mood_before: Optional[int] = Field(None, ge=1, le=10)
+    mood_after: Optional[int] = Field(None, ge=1, le=10)
+    
+    # Extra fields (require DB migration if you want persistence)
+    emotions_before: Optional[List[str]] = []
+    emotions_after: Optional[List[str]] = []
+    mindful_eating_score: Optional[int] = Field(None, ge=1, le=10)
+    notes: Optional[str] = Field(None, max_length=1000)
+    photo_url: Optional[str] = None
